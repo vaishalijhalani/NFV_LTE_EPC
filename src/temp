@@ -1,0 +1,89 @@
+#---------------Final Target----------------#
+
+all:	main.out
+
+#-------------------------------------------#
+
+
+#-----------------Compiler------------------#
+
+G++ = g++ -std=c++0x -std=c++11 -std=gnu++0x -ggdb
+
+#-------------------------------------------#
+
+
+#---------------Object files----------------#
+
+diameter.o:	diameter.cpp diameter.h utils.h
+	$(G++) -c -o diameter.o diameter.cpp
+
+gtp.o:	gtp.cpp gtp.h utils.h
+	$(G++) -c -o gtp.o gtp.cpp
+
+network.o:	diameter.h gtp.h network.cpp network.h packet.h s1ap.h utils.h 
+	$(G++) -c -o network.o network.cpp
+
+packet.o:	diameter.h gtp.h packet.cpp packet.h s1ap.h utils.h
+	$(G++) -c -o packet.o packet.cpp
+
+s1ap.o:	s1ap.cpp s1ap.h utils.h
+	$(G++) -c -o s1ap.o s1ap.cpp
+
+sctp_client.o:	diameter.h gtp.h network.h packet.h s1ap.h sctp_client.cpp sctp_client.h utils.h
+	$(G++) -c -o sctp_client.o sctp_client.cpp
+
+sctp_server.o:	diameter.h gtp.h network.h packet.h s1ap.h sctp_server.cpp sctp_server.h sync.h utils.h
+	$(G++) -c -o sctp_server.o sctp_server.cpp	
+
+security.o:	diameter.h gtp.h packet.h s1ap.h security.cpp security.h utils.h
+	$(G++) -c -o security.o security.cpp
+
+sync.o:	sync.cpp sync.h utils.h
+	$(G++) -c -o sync.o sync.cpp
+
+telecom.o:	telecom.cpp telecom.h utils.h
+	$(G++) -c -o telecom.o telecom.cpp
+
+udp_client.o:	diameter.h gtp.h network.h packet.h s1ap.h udp_client.cpp udp_client.h utils.h
+	$(G++) -c -o udp_client.o udp_client.cpp
+
+utils.o:	utils.cpp utils.h
+	$(G++) -c -o utils.o utils.cpp
+
+extra.o:	diameter.h gtp.h network.h packet.h s1ap.h security.h sctp_server.h sctp_client.h udp_client.h sync.h utils.h telecom.h
+	$(G++) -c -o extra.o extra.cpp
+
+#-------------------------------------------#
+
+
+#---------Prerequisites and Recipes---------#
+
+
+MAIN_P = extra.o
+MAIN_R = $(G++) -o main.out $(MAIN_P)
+
+#-------------------------------------------#
+
+
+#---------------Executable files------------#
+
+
+main.out:	$(MAIN_P)	
+	$(MAIN_R)
+
+#-------------------------------------------#
+
+
+#------------------Cleaner------------------#
+
+clean:
+	rm -f *~ *.o *.out
+
+#-------------------------------------------#
+
+
+#--------------Special Commands-------------#
+
+# make -k (To keep going on even after encountering errors in making a former target)
+
+#-------------------------------------------#
