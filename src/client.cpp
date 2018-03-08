@@ -1,38 +1,11 @@
 #include "extra.h"
-#include "diameter.h"
-#include "gtp.h"
-#include "network.h"
-#include "packet.h"
-#include "s1ap.h"
-#include "sctp_client.h"
-//#include "sctp_server.h"
-//#include "security.h"
-#include "sync.h"
-#include "telecom.h"
-#include "udp_client.h"
-#include "utils.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <stdint.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <string.h>
-#include <time.h>
-#include <pthread.h>
-#include <signal.h>
-#include <iostream>
-#include <sys/epoll.h>
-#include <unistd.h>
-#include <time.h>
 
 int done = 0;
+struct epoll_event *events;
+int nevents;
+int ep;
+map<int, class Ran> fdmap;
+//map<int, class Packet> fdmap1;
 void setsock_nonblock(int fd)
 {
     int flags;
@@ -55,6 +28,74 @@ void setsock_nonblock(int fd)
 }
 
 
+void run_wait()
+{
+      
+  int x = no_of_connections;
+  while(1)
+  {
+      nevents = epoll_wait( ep, events, MAX_EVENTS, 100);
+      
+      //cout << "in while\n";
+
+      for(int i=0;i<nevents;i++) 
+      { 
+
+          //cout <<"events " <<  nevents;
+
+        if (nevents < 0) 
+        {
+          if (errno != EINTR)
+            printf("epoll_wait");
+          break;
+        }
+
+        if( (events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP)) 
+        {
+          cout<<"ERROR: epoll monitoring failed, closing fd"<<'\n';
+          close(events[i].data.fd);
+          continue;
+        }
+
+      else if(events[i].events & EPOLLIN)
+      {
+
+
+              char * dataptr;
+              int cur_fd;
+              Packet packet;
+              Ran ran;  
+              int pkt_len;
+              cur_fd = events[i].data.fd;
+              ran = fdmap[cur_fd];
+              //cout << "before read\n";
+              packet.clear_pkt();
+              int retval = read_stream(cur_fd, packet.data, sizeof(int));
+              if (retval > 0) 
+              {
+                //cout << "in read\n";
+                memmove(&pkt_len, packet.data, sizeof(int) * sizeof(uint8_t));
+                packet.clear_pkt();
+                retval = read_stream(cur_fd, packet.data, pkt_len);
+                packet.data_ptr = 0;
+                packet.len = retval;
+
+              }
+              ran.store_packet(packet);
+              fdmap.erase(cur_fd);
+              fdmap.insert(make_pair(cur_fd,ran));
+              x--;
+
+      }
+
+    }
+
+    if(x==0) break;
+
+  }
+
+}
+
 /*----------------------------------------------------------------------------*/
 
 int main(int argc, char **argv){
@@ -70,7 +111,7 @@ int main(int argc, char **argv){
 	uint32_t enodeb_s1ap_ue_id;
 };
 
-map<int, mdata> fdmap;
+
 
 float packets=0, sec=0;
 clock_t before;
@@ -91,7 +132,7 @@ set<int> list1;
 struct mdata fddata;
 
 	/* create epoll descriptor */
-	int ep = epoll_create( MAX_EVENTS);
+	ep = epoll_create( MAX_EVENTS);
 	if (ep < 0) {
 		printf("Failed to create epoll descriptor!\n");
 		return NULL;
@@ -142,7 +183,7 @@ struct mdata fddata;
         ret = connect( sockid, (struct sockaddr *)&daddr, sizeof(struct sockaddr_in));
         if((ret == -1) && (errno == EINPROGRESS))
         {
-          printf("\nEINPROGRESS\n");
+          //printf("\nEINPROGRESS\n");
           ev.events = EPOLLOUT | EPOLLET;
           ev.data.fd = sockid;
           epoll_ctl(ep, EPOLL_CTL_ADD, sockid, &ev);
@@ -172,8 +213,7 @@ struct mdata fddata;
   }
 	
 	//step 6. epoll_wait
-  struct epoll_event *events;
-  int nevents;
+  
   events = (struct epoll_event *)calloc(MAX_EVENTS, sizeof(struct epoll_event));
   if (!events) {
     printf("Failed to create event struct!\n");
@@ -188,10 +228,7 @@ struct mdata fddata;
 	//dpdkuse_ins.count = 128;
 	int i;
 	x = no_of_connections;
-    
-    
     int retval;
-    Ran ran;
     int status;
     int ran_num;
 	int done1=1;
@@ -218,7 +255,7 @@ struct mdata fddata;
         int cret = getsockopt (sockid, SOL_SOCKET, SO_ERROR, &err, &len);  //Check if connect succedd or failed??
         if( (cret == 0) && (err == 0)) //Conn estd
         {
-            cout <<"connect after some time\n";
+            //cout <<"connect after some time\n";
             x--;    
         }
       }
@@ -233,132 +270,79 @@ struct mdata fddata;
 	for(int i=0; i<no_of_connections; i++)
   {
 
-
+      Ran ran;
   		ran.init(i);
     	ran.initial_attach(sock_store[i]);
 	   	epoll_ctl( ep, EPOLL_CTL_DEL, sock_store[i], &ev);
 		  ev.events = EPOLLIN;
     	ev.data.fd = sock_store[i];
     	epoll_ctl( ep, EPOLL_CTL_ADD, sock_store[i], &ev);	
-		  fddata.enodeb_s1ap_ue_id = ran.ran_ctx.enodeb_s1ap_ue_id;
-      fddata.key = ran.ran_ctx.key;
-      fddata.msisdn = ran.ran_ctx.key;
-      fddata.imsi = ran.ran_ctx.imsi;
-		  fdmap.insert(make_pair(sock_store[i], fddata));
+      fdmap.insert(make_pair(sock_store[i],ran));
 
 	}
         
-
-    x=no_of_connections;
-
- 	while(1)
- 	{
-	    nevents = epoll_wait( ep, events, MAX_EVENTS, 100);
-	    
-	    //cout << "in while\n";
-
-	    for(i=0;i<nevents;i++) 
-		{ 
-
-        	cout <<"events " <<  nevents;
-
-		    if (nevents < 0) 
-		    {
-		      if (errno != EINTR)
-		        printf("epoll_wait");
-		      break;
-		    }
-
-		    if(	(events[i].events & EPOLLERR) || (events[i].events & EPOLLHUP)) 
-	    	{
-					cout<<"ERROR: epoll monitoring failed, closing fd"<<'\n';
-					close(events[i].data.fd);
-					continue;
-        }
-
-			else if(events[i].events & EPOLLIN)
-			{
-
-			    char * dataptr;
-          int cur_fd;
-          Packet packet;
-          int pkt_len;
-			    cur_fd = events[i].data.fd;
-			    fddata = fdmap[cur_fd];
-          		//cout << "before read\n";
-          		packet.clear_pkt();
-          		int retval = read_stream(cur_fd, packet.data, sizeof(int));
-          		if (retval > 0) 
-          		{
-            		//cout << "in read\n";
-          			memmove(&pkt_len, packet.data, sizeof(int) * sizeof(uint8_t));
-          			packet.clear_pkt();
-          			retval = read_stream(cur_fd, packet.data, pkt_len);
-          			packet.data_ptr = 0;
-         		   	packet.len = retval;
-
-          		}
-
-				      if (packet.len <= 0) 
-          		{
-              		return false;
-          		}
-  
-          		//TRACE(cout << "ran_authenticate: " << " received request for ran: " << ran.ran_ctx.imsi << endl;)
-		        packet.extract_s1ap_hdr();
-		        //cout << "packetid " <<  packet.s1ap_hdr.enodeb_s1ap_ue_id << endl;
-		        //cout << "storedid " << fddata.enodeb_s1ap_ue_id << endl;
-		        
-	            if(fddata.enodeb_s1ap_ue_id == packet.s1ap_hdr.enodeb_s1ap_ue_id)
-	          	{
-	            	  cout << "\nData received by Ran " <<  packet.s1ap_hdr.enodeb_s1ap_ue_id << endl;
-	              	  x--;
-	            }
-
-				      memcpy(fdmap[cur_fd].buf, packet.data, pkt_len);
-				      fdmap[cur_fd].len = pkt_len;
-
-
-          
-          
-
-			}
-
-		}
-
-		if(x==0) break;
-
-	}
-
-
-	x = no_of_connections;
+	run_wait();
 
 	for(int i=0; i<no_of_connections; i++)
-    {
+  {
     	
+    Ran ran;  
 		bool ok;
-		fddata = fdmap[sock_store[i]];
-		//Packet pkt1;
-		//memcpy(pkt1.data, fddata.buf, fddata.len);
-		//cout << pkt1.s1ap_hdr.enodeb_s1ap_ue_id << " before extract\n";
-		//pkt1.extract_s1ap_hdr();
-		//cout << pkt1.s1ap_hdr.enodeb_s1ap_ue_id << " after\n";
-		ok = ran[i].authenticate(sock_store[i], fddata);
+		ran = fdmap[sock_store[i]];
+    //ran.showpack();
+		ok = ran.authenticate(sock_store[i]);
 		if (!ok) 
 		{
 			TRACE(cout << "ransimulator_simulate:" << " autn failure" << endl;)
 		}
-
-		epoll_ctl( ep, EPOLL_CTL_DEL, sock_store[i], &ev);
-		ev.events = EPOLLIN;
-    ev.data.fd = sock_store[i];
-    epoll_ctl( ep, EPOLL_CTL_ADD, sock_store[i], &ev);	
-		fddata.enodeb_s1ap_ue_id = ran.ran_ctx.enodeb_s1ap_ue_id;
-		fdmap.insert(make_pair(sock_store[i], fddata));
-    
-		//write( sockid, "done with connection", 50);
 	}
 
+  run_wait();
+
+
+  for(int i=0; i<no_of_connections; i++)
+  {
+      
+    Ran ran;  
+    bool ok;
+    ran = fdmap[sock_store[i]];
+    //ran.showpack();
+    ok = ran.set_security(sock_store[i]);
+    if (!ok) {
+      TRACE(cout << "ransimulator_simulate:" << " security setup failure" << endl;)
+    }
+  }
+
+  run_wait();
+
+  /*for(int i=0; i<no_of_connections; i++)
+  {
+      
+    Ran ran;  
+    bool ok;
+    ran = fdmap[sock_store[i]];
+    //ran.showpack();
+    ok = ran.set_eps_session(g_traf_mon, sock_store[i]);
+    if (!ok) {
+      TRACE(cout << "ransimulator_simulate:" << " eps session setup failure" << endl;)
+    }
+  }
+
+run_wait();
+
+  for(int i=0; i<no_of_connections; i++)
+  {
+      
+    Ran ran;  
+    bool ok;
+    ran = fdmap[sock_store[i]];
+    //ran.showpack();
+    ok = ran.detach();
+    if (!ok) {
+      TRACE(cout << "ransimulator_simulate:" << " detach failure" << endl;)
+    }
+  }
+*/
 
 return 0;
 }

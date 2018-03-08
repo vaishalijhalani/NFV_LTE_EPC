@@ -5,12 +5,9 @@
 #include "network.h"
 #include "packet.h"
 #include "s1ap.h"
-#include "sctp_client.h"
-#include "sctp_server.h"
 #include "security.h"
 #include "sync.h"
 #include "telecom.h"
-#include "udp_client.h"
 #include "utils.h"
 
 
@@ -60,8 +57,9 @@
 #include <unordered_map>
 
 #define MAX_EVENTS 2048
-#define no_of_connections 3
+#define no_of_connections 2
 
+//TrafficMonitor g_traf_mon;
 using namespace std;
 
 //variable declaration
@@ -141,13 +139,8 @@ private:
 	//EpcAddrs epc_addrs;
 	//SctpClient mme_client;
 	Packet pkt;
-	void write_packet(Packet packet)
-	{
-		memcpy(pkt.data,packet.data,packet.len);
-		pkt.len = packet.len;
-	}
-	//void set_crypt_context();
-	//void set_integrity_context();
+	void set_crypt_context();
+	void set_integrity_context();
 	
 public:
 	/* Parameters added for hand-over  */
@@ -180,14 +173,19 @@ public:
 	RanContext ran_ctx;
 	
 	void init(int);
+	void store_packet(Packet & packet);
+	void showpack();
 	//void conn_mme();
 	void initial_attach(int);
-	bool authenticate(int , struct mdata);
-	//bool set_security();
-	//bool set_eps_session(TrafficMonitor&);
+	bool authenticate(int);
+	bool set_security(int);
+	//bool set_eps_session(TrafficMonitor&, int);
 	//void transfer_data(int);
 	//bool detach();	
 };
+
+
+
 
 
 

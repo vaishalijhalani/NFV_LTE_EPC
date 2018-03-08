@@ -51,6 +51,17 @@ void Ran::init(int arg) {
 	ran_ctx.init(arg);
 }
 
+void Ran::store_packet(Packet & packet)
+{
+	pkt = packet;
+	
+}
+
+void Ran::showpack()
+{
+	pkt.extract_s1ap_hdr();
+	cout << "packetid " <<  pkt.len << endl;
+}
 
 void Ran::initial_attach(int ran_fd) {
 	int returnval;
@@ -71,7 +82,9 @@ void Ran::initial_attach(int ran_fd) {
 	TRACE(cout << "ran_initialattach:" << " request sent for ran: " << ran_ctx.imsi << endl;)
 }
 
-bool Ran::authenticate(int ran_fd, struct mdata fddata) 
+
+
+bool Ran::authenticate(int ran_fd) 
 {
 	
 	uint64_t autn_num;
@@ -82,16 +95,22 @@ bool Ran::authenticate(int ran_fd, struct mdata fddata)
 	uint64_t ck;
 	uint64_t ik;
 	int returnval;
-	Packet pkt;
+	int pkt_len;
+	/*Packet pkt;
 	memcpy(pkt.data, buf, pkt_len);
 	pkt.len = pkt_len;
 	//mme_client.rcv(pkt);
 	if (pkt.len <= 0) {
 		return false;
-	}
+	}*/
 	//TRACE(cout << "ran_authenticate: " << " received request for ran: " << ran_ctx.imsi << endl;)
+
+	//pkt = packet;
+	/*if (pkt.len <= 0) {
+		return false;
+	}*/
 	pkt.extract_s1ap_hdr();
-    cout << "packetid " <<  pkt.s1ap_hdr.mme_s1ap_ue_id << endl;
+    //cout << "packetid " <<  pkt.len << endl;
 
 	ran_ctx.mme_s1ap_ue_id = pkt.s1ap_hdr.mme_s1ap_ue_id;
 	pkt.extract_item(xautn_num);
@@ -102,6 +121,7 @@ bool Ran::authenticate(int ran_fd, struct mdata fddata)
 	sqn = rand_num + 1;
 	res = ran_ctx.key + sqn + rand_num;
 	autn_num = res + 1;
+	cout << autn_num << xautn_num;
 	if (autn_num != xautn_num) {
 		TRACE(cout << "ran_authenticate:" << " authentication of MME failure: " << ran_ctx.imsi << endl;)
 		return false;
@@ -113,23 +133,25 @@ bool Ran::authenticate(int ran_fd, struct mdata fddata)
 	pkt.clear_pkt();
 	pkt.append_item(res);
 	pkt.prepend_s1ap_hdr(2, pkt.len, ran_ctx.enodeb_s1ap_ue_id, ran_ctx.mme_s1ap_ue_id);
+	pkt.prepend_len();
 	returnval = write_stream(ran_fd, pkt.data, pkt.len);
 	
 	if(returnval < 0)
 	{
-		cout<<"Error: Cant send to RAN"<<endl;
+		cout<<"Error: Cant send to MME"<<endl;
 		exit(-1);
 	}
-	TRACE(cout << "ran_authenticate:" << " autn response sent to mme: " << pkt.len << endl;)
+	TRACE(cout << "ran_authenticate:" << " autn response sent to mme: " << ran_ctx.imsi << endl;)
 	return true;
 }
 
-/*bool Ran::set_security() {
+bool Ran::set_security(int ran_fd) {
 	uint8_t *hmac_res;
 	uint8_t *hmac_xres;
 	bool res;
-
+	int returnval;
 	//mme_client.rcv(pkt);
+	//pkt = packet;
 	if (pkt.len <= 0) {
 		return false;
 	}	
@@ -138,6 +160,7 @@ bool Ran::authenticate(int ran_fd, struct mdata fddata)
 	hmac_xres = g_utils.allocate_uint8_mem(HMAC_LEN);
 	TRACE(cout << "ran_setsecurity: " << " received request for ran: " << pkt.len << ": " << ran_ctx.imsi << endl;)
 	pkt.extract_s1ap_hdr();
+	ran_ctx.mme_s1ap_ue_id = pkt.s1ap_hdr.mme_s1ap_ue_id;
 	if (HMAC_ON) {
 		g_integrity.rem_hmac(pkt, hmac_xres);
 	}
@@ -165,8 +188,18 @@ bool Ran::authenticate(int ran_fd, struct mdata fddata)
 	if (HMAC_ON) {
 		g_integrity.add_hmac(pkt, ran_ctx.k_nas_int);
 	}
+
+	//cout << ran_ctx.mme_s1ap_ue_id << " mmeid " << endl;
 	pkt.prepend_s1ap_hdr(3, pkt.len, ran_ctx.enodeb_s1ap_ue_id, ran_ctx.mme_s1ap_ue_id);
 	//mme_client.snd(pkt);
+	pkt.prepend_len();
+	returnval = write_stream(ran_fd, pkt.data, pkt.len);
+	
+	if(returnval < 0)
+	{
+		cout<<"Error: Cant send to MME"<<endl;
+		exit(-1);
+	}
 	TRACE(cout << "ran_setsecurity:" << " security mode complete sent to mme: " << pkt.len << ": " << ran_ctx.imsi << endl;)
 	free(hmac_res);
 	free(hmac_xres);
@@ -181,12 +214,12 @@ void Ran::set_integrity_context() {
 	ran_ctx.k_nas_int = ran_ctx.k_asme + ran_ctx.nas_int_algo + ran_ctx.count + ran_ctx.bearer + ran_ctx.dir + 1;
 }
 
-bool Ran::set_eps_session(TrafficMonitor &traf_mon) {
+/*bool Ran::set_eps_session(TrafficMonitor &traf_mon, int ran_fd) {
 	bool res;
 	uint64_t k_enodeb;
 	int tai_list_size;
 
-	mme_client.rcv(pkt);
+	//mme_client.rcv(pkt);
 	if (pkt.len <= 0) {
 		return false;
 	}
@@ -231,7 +264,13 @@ bool Ran::set_eps_session(TrafficMonitor &traf_mon) {
 		g_integrity.add_hmac(pkt, ran_ctx.k_nas_int);
 	}
 	pkt.prepend_s1ap_hdr(4, pkt.len, ran_ctx.enodeb_s1ap_ue_id, ran_ctx.mme_s1ap_ue_id);
-	mme_client.snd(pkt);
+	pkt.prepend_len();
+	returnval = write_stream(ran_fd, pkt.data, pkt.len);
+	if(returnval < 0)
+	{
+		cout<<"Error: Cant send to MME"<<endl;
+		exit(-1);
+	}
 	TRACE(cout << "ran_setepssession:" << " attach complete sent to mme: " << pkt.len << ": " << ran_ctx.imsi << endl;)
 	ran_ctx.emm_state = 1;
 	ran_ctx.ecm_state = 1;
@@ -291,4 +330,6 @@ int write_stream( int conn_fd, uint8_t *buf, int len) {
 	}
 	return retval;
 }
+
+
 
